@@ -5,14 +5,10 @@ namespace Training;
 
 public class MyTaskMethodBuilder
 {
-    internal readonly struct VoidTaskResult
-    {
-    }
-
-    Exception? _exception;
-    bool _hasResult;
-    SpinLock _lock;
-    MyTaskCompletionSource<VoidTaskResult>? _source;
+    private Exception? _exception;
+    private bool _hasResult;
+    private SpinLock _lock;
+    private MyTask? _myTask;
 
     public MyTask Task
     {
@@ -26,26 +22,28 @@ public class MyTaskMethodBuilder
 
                 if (_exception is not null)
                 {
-                    _source!.Task.SetException(_exception);
+                    _myTask!.SetException(_exception);
 
-                    return  _source!.Task;
+                    return  _myTask;
                 }
 
                 if (_hasResult)
                 {
-                    _source!.Task.Complete(null);
+                    _myTask!.Complete(null);
 
-                    return _source.Task;
+                    return _myTask;
                 }
 
-                _source ??= new MyTaskCompletionSource<VoidTaskResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _myTask ??= new MyTask();
 
-                return _source.Task;
+                return _myTask;
             }
             finally
             {
                 if (lockTaken)
+                {
                     _lock.Exit();
+                }
             }
         }
     }
@@ -72,13 +70,15 @@ public class MyTaskMethodBuilder
 
     public void SetException(Exception exception)
     {
-        var lockTaken = false;
+        bool lockTaken = false;
+
         try
         {
             _lock.Enter(ref lockTaken);
-            if (Volatile.Read(ref _source) is { } source)
+
+            if (Volatile.Read(ref _myTask) is { } myTask)
             {
-                source.TrySetException(exception);
+                myTask.SetException(exception);
             }
             else
             {
@@ -88,7 +88,9 @@ public class MyTaskMethodBuilder
         finally
         {
             if (lockTaken)
+            {
                 _lock.Exit();
+            }
         }
     }
 
@@ -100,7 +102,7 @@ public class MyTaskMethodBuilder
         {
             _lock.Enter(ref lockTaken);
 
-            _source!.TrySetResult(new VoidTaskResult());
+            _myTask!.SetResult();
 
             _hasResult = true;
         }
